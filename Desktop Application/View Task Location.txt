@@ -1,0 +1,75 @@
+﻿using MongoDB.Driver;
+using System;
+using System.Windows.Forms;
+using Truck_management_system.model;
+
+namespace Truck_management_system.Admin.Gps
+{
+    public partial class view_Tasklocation : Form
+    {
+        private task_model task;
+        private string shortDestination;
+
+        // Updated constructor to accept the shortened destination
+        public view_Tasklocation(task_model task, string shortDestination)
+        {
+            InitializeComponent();
+            this.task = task;
+            this.shortDestination = shortDestination;  // Store the shortened destination
+        }
+
+        private async void view_Tasklocation_Load(object sender, EventArgs e)
+        {
+            if (task != null)
+            {
+                // Use the shortened destination
+                textBox1.Text = shortDestination;
+
+                // Ensure WebView2 is initialized before loading content
+                await webView22.EnsureCoreWebView2Async();
+
+                // Get the path to the local HTML file for the Leaflet map
+                string htmlFilePath = @"file:///C:/Capstone%20Code/Truck%20management%20system/bin/Debug/net8.0-windows/view_map.html";
+
+                // Load the local HTML file into WebView2
+                webView22.Source = new Uri(htmlFilePath);
+
+                // Wait until the WebView2 document is fully loaded
+                webView22.CoreWebView2.NavigationCompleted += (s, args) =>
+                {
+                    // Inject JavaScript to initialize the map with the shortened destination
+                    string script = $@"
+                handleDestinationChange('{shortDestination}');
+            ";
+
+                    // Execute the script in the WebView2 context to update the map
+                    webView22.CoreWebView2.ExecuteScriptAsync(script);
+                };
+            }
+
+            // Add event listener for changes in textBox1 (destination input)
+            textBox1.TextChanged += (s, args) =>
+            {
+                string destination = textBox1.Text.Trim();
+
+                // When the user types in textBox1, automatically update the map with the new destination
+                if (!string.IsNullOrEmpty(destination))
+                {
+                    // Trigger JavaScript to update the map based on the new destination
+                    string script = $@"
+                handleDestinationChange('{destination}');
+            ";
+
+                    // Execute the script in the WebView2 context
+                    webView22.CoreWebView2.ExecuteScriptAsync(script);
+                }
+            };
+        }
+
+        private void pictureBox2_Click(object sender, EventArgs e)
+        {
+            this.Close();
+        }
+    }
+
+}

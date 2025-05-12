@@ -1,0 +1,262 @@
+
+﻿using MongoDB.Driver;
+using System;
+using System.Drawing;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using Truck_management_system.model;
+using MongoDB.Bson;
+
+namespace Truck_management_system.Admin.Booking
+{
+    public partial class manage_task : Form
+    {
+        IMongoCollection<model.task_model> task_collection = partial_data.db.GetCollection<model.task_model>("task");
+        IMongoCollection<employee_model> employee_collection = partial_data.db.GetCollection<employee_model>("employee");
+        IMongoCollection<truck_model> truck_collection = partial_data.db.GetCollection<truck_model>("truck");
+
+        private string searchQuery = ""; // Store the search query
+
+        public manage_task()
+        {
+            InitializeComponent();
+            comboBox1.DropDownStyle = ComboBoxStyle.DropDownList;
+            comboBox1.BackColor = Color.White;
+            comboBox1.ForeColor = Color.FromArgb(22, 172, 132);
+            comboBox1.DrawMode = DrawMode.OwnerDrawFixed;
+            comboBox1.DrawItem += new DrawItemEventHandler(comboBox1_DrawItem);
+            comboBox1.Invalidate();
+
+            // Add event handler for txtsearch KeyDown (for pressing Enter)
+            txtsearch.KeyDown += new KeyEventHandler(txtsearch_KeyDown);
+
+            // Add event handler for txtsearch TextChanged (for clearing search)
+            txtsearch.TextChanged += new EventHandler(txtsearch_TextChanged);
+        }
+
+        private void manage_task_Load(object sender, EventArgs e)
+        {
+            LoadTask();
+        }
+
+        public void LoadTask(string filter = "ALL TASK")
+        {
+            FilterDefinition<model.task_model> filterDef;
+            switch (filter)
+            {
+                case "PENDING TASK":
+                    filterDef = Builders<model.task_model>.Filter.Eq(t => t.status, 0);
+                    break;
+                case "ON TASK":
+                    filterDef = Builders<model.task_model>.Filter.Eq(t => t.status, 1);
+                    break;
+                case "COMPLETED TASK":
+                    filterDef = Builders<model.task_model>.Filter.Eq(t => t.status, 2);
+                    break;
+                case "ALL TASK":
+                default:
+                    filterDef = Builders<model.task_model>.Filter.Empty;
+                    break;
+            }
+
+            var tasks = task_collection.Find(filterDef)
+                .SortByDescending(t => t.id)
+                .ToList();
+
+            var totalRecords = tasks.Count;
+            manage_task_dgv.Rows.Clear();
+
+            foreach (var taskItem in tasks)
+            {
+                string statusText = taskItem.status switch
+                {
+                    0 => "Pending",
+                    1 => "On Task",
+                    2 => "Completed",
+                    _ => "Unknown"
+                };
+
+                manage_task_dgv.Rows.Add(
+                    taskItem.truck_no,
+                    taskItem.task_no,
+                    taskItem.driver_name,
+                    taskItem.assistant_name,
+                    taskItem.item,
+                    statusText,
+                    taskItem.destination,
+                    taskItem.ship_time,
+                    taskItem.completed_time,
+                    taskItem.id
+                );
+            }
+
+            task_total.Text = $"Total Records: {totalRecords}";
+        }
+
+        private void add_btn_Click(object sender, EventArgs e)
+        {
+            add_task frm = new add_task(this);
+            frm.ShowDialog();
+        }
+
+        private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            var selectedFilter = comboBox1.SelectedItem?.ToString();
+            LoadTask(selectedFilter);
+        }
+
+        private void comboBox1_DrawItem(object sender, DrawItemEventArgs e)
+        {
+            e.DrawBackground();
+            if (e.Index >= 0)
+            {
+                ComboBox combo = (ComboBox)sender;
+                string text = combo.Items[e.Index].ToString();
+                using (SolidBrush brush = new SolidBrush(Color.FromArgb(22, 172, 132)))
+                {
+                    e.Graphics.DrawString(text, e.Font, brush, e.Bounds);
+                }
+            }
+            e.DrawFocusRectangle();
+        }
+
+        private void txtsearch_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter) // Check if Enter key is pressed
+            {
+                MessageBox.Show($"Searching for: {txtsearch.Text.Trim()} Please wait.."); // Debug message
+                searchQuery = txtsearch.Text.Trim(); // Update the search query
+                SearchTasks();  
+            }
+        }
+
+        private void txtsearch_TextChanged(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(txtsearch.Text)) // If the search box is cleared
+            {
+                LoadTask(); // Reload all tasks without any filtering
+            }
+        }
+
+        // Search tasks based on the searchQuery.
+        private void SearchTasks()
+        {
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                var filterDef = Builders<model.task_model>.Filter.And(
+                    Builders<model.task_model>.Filter.In(t => t.status, new[] { 0, 1, 2 }), // Search across all statuses
+                    Builders<model.task_model>.Filter.Or(
+                        Builders<model.task_model>.Filter.Regex(t => t.task_no, new BsonRegularExpression(searchQuery, "i")),
+                        Builders<model.task_model>.Filter.Regex(t => t.driver_name, new BsonRegularExpression(searchQuery, "i")),
+                        Builders<model.task_model>.Filter.Regex(t => t.assistant_name, new BsonRegularExpression(searchQuery, "i")),
+                        Builders<model.task_model>.Filter.Regex(t => t.item, new BsonRegularExpression(searchQuery, "i"))
+                    )
+                );
+
+                var tasks = task_collection.Find(filterDef)
+                    .SortByDescending(t => t.created_at)
+                    .ToList();
+
+                var result = tasks.Count;
+
+                manage_task_dgv.Rows.Clear();
+                foreach (var taskItem in tasks)
+                {
+                    string statusText = taskItem.status switch
+                    {
+                        0 => "Pending",
+                        1 => "On Task",
+                        2 => "Completed",
+                        _ => "Unknown"
+                    };
+
+                    manage_task_dgv.Rows.Add(
+                        taskItem.truck_no,
+                        taskItem.task_no,
+                        taskItem.driver_name,
+                        taskItem.assistant_name,
+                        taskItem.item,
+                        statusText,
+                        taskItem.destination,
+                        taskItem.ship_time,
+                        taskItem.completed_time,
+                        taskItem.id
+                    );
+                }
+
+                task_total.Text = $"Total Result: {result}";
+            }
+        }
+
+        private async void manage_task_dgv_CellContentClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
+            {
+                string colName = manage_task_dgv.Columns[e.ColumnIndex].Name;
+                string taskId = manage_task_dgv.Rows[e.RowIndex].Cells["_id"].Value.ToString();
+
+                // Retrieve the task from the database
+                var taskToView = await task_collection.Find(t => t.id == taskId).FirstOrDefaultAsync();
+
+
+
+                if (colName == "Delete")
+                {
+                    DialogResult confirmResult = MessageBox.Show(
+                        "Are you sure you want to delete this task and update the status of the related employee and truck to Pending?",
+                        "Confirm Delete",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+
+                    if (confirmResult == DialogResult.Yes)
+                    {
+                        var taskToDelete = await task_collection.Find(t => t.id == taskId).FirstOrDefaultAsync();
+                        if (taskToDelete != null)
+                        {
+                            var truckUpdateFilter = Builders<truck_model>.Filter.Eq(t => t.truck_no, taskToDelete.truck_no);
+                            var truckUpdate = Builders<truck_model>.Update.Set(t => t.status, 0);
+                            await truck_collection.UpdateOneAsync(truckUpdateFilter, truckUpdate);
+
+                            var driverUpdateFilter = Builders<employee_model>.Filter.Eq(e => e.employee_id, taskToDelete.driver_id);
+                            var driverUpdate = Builders<employee_model>.Update.Set(e => e.status, 0);
+                            await employee_collection.UpdateOneAsync(driverUpdateFilter, driverUpdate);
+
+                            var assistantUpdateFilter = Builders<employee_model>.Filter.Eq(e => e.employee_id, taskToDelete.assistant_id);
+                            var assistantUpdate = Builders<employee_model>.Update.Set(e => e.status, 0);
+                            await employee_collection.UpdateOneAsync(assistantUpdateFilter, assistantUpdate);
+
+                            var taskDeleteFilter = Builders<model.task_model>.Filter.Eq(t => t.id, taskId);
+                            await task_collection.DeleteOneAsync(taskDeleteFilter);
+                            LoadTask();
+                        }
+                    }
+                }
+                else if (colName == "View")
+                {
+                    // Check if task status is not 2 (Completed)
+                    if (taskToView.status != 2)
+                    {
+                        MessageBox.Show("Did not complete the task", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                    else
+                    {
+                        // Proceed with viewing task details if status is 2 (Completed)
+                        DialogResult confirmResult = MessageBox.Show(
+                            "Are you sure you want to view the details of this task?",
+                            "Confirm View",
+                            MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Question);
+
+                        if (confirmResult == DialogResult.Yes)
+                        {
+                            view_task frm = new view_task();
+                            frm.LoadTaskDetails(taskToView);
+                            frm.ShowDialog();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

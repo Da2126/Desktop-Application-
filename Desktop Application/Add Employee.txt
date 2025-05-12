@@ -1,0 +1,249 @@
+﻿using MongoDB.Bson;
+using MongoDB.Driver;
+using System;
+using System.Globalization;
+using System.Windows.Forms;
+using Truck_management_system.Admin.users;
+using Truck_management_system.model;
+
+namespace Truck_management_system.Admin.employee
+{
+    public partial class add_employee : Form
+    {
+        static IMongoCollection<model.employee_model> employee_collection = partial_data.db.GetCollection<model.employee_model>("employee");
+        private readonly employee_manage f1;
+
+        public add_employee(employee_manage frm)
+        {
+            InitializeComponent();
+            f1 = frm;
+        }
+
+        private void LoadEmployeeRoles()
+        {
+            employee_role_cmbbox.Items.Clear();
+            employee_role_cmbbox.Items.Add("Driver");
+            employee_role_cmbbox.Items.Add("Assistance Driver");
+
+            gender_cmbox.Items.Clear();
+            gender_cmbox.Items.Add("Male");
+            gender_cmbox.Items.Add("Female");
+        }
+
+        private void add_employeeBtn_Click(object sender, EventArgs e)
+        {
+            var time = DateTime.Now;
+            TextInfo textInfo = CultureInfo.CurrentCulture.TextInfo;
+
+            // Check for empty fields
+            if (string.IsNullOrWhiteSpace(employee_fname_txtbox.Text) ||
+                string.IsNullOrWhiteSpace(employee_lname_txtbox.Text) ||
+                string.IsNullOrWhiteSpace(employee_mname_txtbox.Text) ||
+                string.IsNullOrWhiteSpace(employee_tags_txtBox.Text) ||
+                string.IsNullOrWhiteSpace(employee_email_txtbox.Text) ||
+                string.IsNullOrWhiteSpace(employee_pass_txtbox.Text) ||
+                string.IsNullOrWhiteSpace(employee_rpass_txtbox.Text) ||
+                string.IsNullOrWhiteSpace(employee_contact_txtbox.Text) ||
+                string.IsNullOrWhiteSpace(employee_address_txtbox.Text) ||
+                BdayTimePicker.Value == null || // Correct property for DateTimePicker
+                gender_cmbox.SelectedItem == null ||
+                employee_role_cmbbox.SelectedItem == null ||
+                image.Image == null) // Ensure image is selected
+            {
+                MessageBox.Show("All Fields are required!", "", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Validate input
+            if (Validation.is_not_unique_tags_employee(employee_tags_txtBox.Text) || Validation.is_not_unique_tags_admin(employee_tags_txtBox.Text))
+            {
+                MessageBox.Show("Your tags already exist!", "", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+
+            if (employee_contact_txtbox.TextLength != 11)
+            {
+                MessageBox.Show("Your Contact # must be 11 digits!", "", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (!Validation.is_valid_email(employee_email_txtbox.Text))
+            {
+                MessageBox.Show("Your email must be valid", "", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (Validation.is_not_unique_email_employee(employee_email_txtbox.Text))
+            {
+                MessageBox.Show("Your email already exists!", "", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (employee_pass_txtbox.Text.Length < 8)
+            {
+                MessageBox.Show("Your password must be at least 8 characters long!", "", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (employee_pass_txtbox.Text != employee_rpass_txtbox.Text)
+            {
+                MessageBox.Show("Passwords do not match!", "", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Define the prefix
+            string prefix = "10-";
+
+            // Fetch the highest ID with the prefix
+            var maxIdDoc = employee_collection.Find(Builders<employee_model>.Filter.Regex("employee_id", new BsonRegularExpression($"^{prefix}")))
+                                               .Sort(Builders<employee_model>.Sort.Descending(e => e.employee_id))
+                                               .Limit(1)
+                                               .FirstOrDefault();
+
+            // Default to "10-000" if no ID is found
+            string maxId = maxIdDoc?.employee_id ?? prefix + "000";
+            string numericPart = maxId.Replace(prefix, "");
+
+            // Increment the numeric part and format it
+            int maxNumericId = int.Parse(numericPart);
+            int newId = maxNumericId + 1;
+            string newEmployeeId = prefix + newId.ToString("D3"); // Format as "10-001"
+
+            var hash_pass = BCrypt.Net.BCrypt.HashPassword(employee_pass_txtbox.Text.Trim());
+
+            // Convert the image to base64 string
+            string imageBase64 = null;
+            using (var ms = new System.IO.MemoryStream())
+            {
+                image.Image.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                byte[] imageBytes = ms.ToArray();
+                imageBase64 = Convert.ToBase64String(imageBytes);
+            }
+
+            var new_employee = new model.employee_model
+            {
+                employee_id = newEmployeeId, // Assign the new employee ID
+                firstname = textInfo.ToTitleCase(employee_fname_txtbox.Text.Trim()),
+                lastname = textInfo.ToTitleCase(employee_lname_txtbox.Text.Trim()),
+                midlename = textInfo.ToTitleCase(employee_mname_txtbox.Text.Trim()),
+                tags = employee_tags_txtBox.Text.Trim(),
+                contact_no = employee_contact_txtbox.Text.Trim(),
+                images = imageBase64,
+                email = employee_email_txtbox.Text.Trim(),
+                address = employee_address_txtbox.Text.Trim(),
+                role = employee_role_cmbbox.SelectedItem.ToString(),
+                gender = gender_cmbox.SelectedItem.ToString(),
+                password = hash_pass,
+                is_active = 1,
+                status = 0,
+                created_at = DateTime.SpecifyKind(time, DateTimeKind.Utc),
+                updated_at = DateTime.SpecifyKind(time, DateTimeKind.Utc),
+                birthday = BdayTimePicker.Value // Ensure to include birthday in your model
+            };
+
+            // Insert the employee into the collection
+            employee_collection.InsertOne(new_employee);
+
+            // Show success message
+            MessageBox.Show("Employee successfully added!", "", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            ClearFields();
+            f1.load_employee();
+        }
+
+
+        private void ClearFields()
+        {
+            employee_fname_txtbox.Clear();
+            employee_lname_txtbox.Clear();
+            employee_mname_txtbox.Clear();
+            employee_tags_txtBox.Clear();
+            employee_contact_txtbox.Clear();
+            employee_address_txtbox.Clear();
+            employee_role_cmbbox.SelectedIndex = -1; // Deselect any selected role
+            gender_cmbox.SelectedIndex = -1; // Deselect any selected gender
+            BdayTimePicker.Value = DateTime.Now; // Reset birthday to current date
+            image.Image = null; // Clear the image
+        }
+
+        private void add_employee_Load(object sender, EventArgs e)
+        {
+            LoadEmployeeRoles();
+        }
+
+        private void pictureBox1_Click(object sender, EventArgs e)
+        {
+            this.Dispose();
+        }
+
+        private void employee_tags_txtBox_TextChanged(object sender, EventArgs e)
+        {
+            // Add any necessary logic here
+        }
+
+        private void pictureBox2_Click(object sender, EventArgs e)
+        {
+            // Clear TextBoxes
+            employee_tags_txtBox.Text = "";
+            employee_fname_txtbox.Text = "";
+            employee_email_txtbox.Text = "";
+            employee_pass_txtbox.Text = "";
+            employee_rpass_txtbox.Text = "";
+            employee_contact_txtbox.Text = "";
+            employee_address_txtbox.Text = "";
+
+            // Clear ComboBoxes
+            employee_role_cmbbox.SelectedIndex = -1;
+            gender_cmbox.SelectedIndex = -1;
+
+            // Clear the image
+            image.Image = null;
+        }
+
+        private void label8_Click(object sender, EventArgs e)
+        {
+            // Add any necessary logic here
+        }
+
+        private void label1_Click(object sender, EventArgs e)
+        {
+            // Add any necessary logic here
+        }
+
+        private void label6_Click(object sender, EventArgs e)
+        {
+            // Add any necessary logic here
+        }
+
+        private void employee_address_txtbox_TextChanged(object sender, EventArgs e)
+        {
+            // Add any necessary logic here
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                OpenFileDialog dialog = new OpenFileDialog
+                {
+                    Filter = "jpg files(*.jpg)|*.jpg| PNG files(*.png)|*.png| All Files(*.*)|*.*"
+                };
+
+                if (dialog.ShowDialog() == DialogResult.OK)
+                {
+                    string imageLocation = dialog.FileName;
+                    image.ImageLocation = imageLocation;
+                }
+            }
+            catch (Exception)
+            {
+                MessageBox.Show("An error occurred while selecting the image.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void image_Click(object sender, EventArgs e)
+        {
+
+        }
+    }
+}
